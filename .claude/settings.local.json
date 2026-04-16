@@ -3,7 +3,11 @@
     "allow": [
       "Bash(npx shadcn@latest add input label card --yes)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(npx shadcn@latest add skeleton badge select separator --yes)"
+      "Bash(npx shadcn@latest add skeleton badge select separator --yes)",
+      "Bash(npx shadcn@latest *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"const mp = require\\('mercadopago'\\); console.log\\(Object.keys\\(mp\\)\\)\")"
     ]
   }
 }

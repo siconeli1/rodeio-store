@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/server"
 import { signOutAction } from "@/app/auth/actions"
+import { CartButton } from "./cart-button"
 
 export async function Header() {
   const supabase = await createClient()
@@ -27,6 +28,7 @@ export async function Header() {
         </div>
 
         <nav className="flex items-center gap-2">
+          <CartButton />
           {user ? (
             <>
               <Button asChild variant="ghost" size="sm">

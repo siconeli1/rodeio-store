@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { ImageGallery } from "./image-gallery"
 import { formatPrice, getDiscountPercent } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { useCartStore } from "@/store/cart"
 import type { ProductWithVariants, ProductVariant } from "@/types/database"
 
 interface ProductDetailProps {
@@ -65,6 +66,8 @@ export function ProductDetail({ product }: ProductDetailProps) {
     ? getDiscountPercent(product.price, product.compare_price!)
     : 0
 
+  const { addToCart, openCart } = useCartStore()
+
   function handleAddToCart() {
     if (!selectedVariant) {
       toast.error("Selecione o tamanho e a cor.")
@@ -74,8 +77,19 @@ export function ProductDetail({ product }: ProductDetailProps) {
       toast.error("Quantidade indisponível no estoque.")
       return
     }
-    // TODO: integrar com Zustand cart store na Fase 4
+    addToCart({
+      productId: product.id,
+      variantId: selectedVariant.id,
+      name: product.name,
+      image: product.images[0] ?? "",
+      price: product.price,
+      size: selectedVariant.size,
+      color: selectedVariant.color,
+      quantity,
+      stock: selectedVariant.stock,
+    })
     toast.success(`${product.name} adicionado ao carrinho!`)
+    openCart()
   }
 
   return (
