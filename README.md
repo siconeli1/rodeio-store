@@ -34,11 +34,11 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 O projeto inclui um cron job configurado via Vercel para manter o banco de dados Supabase (free tier) sempre ativo. O free tier do Supabase pausa projetos inativos após 7 dias sem requisições.
 
 - **Rota:** `GET /api/crons/keep-alive`
-- **Frequência:** A cada 6 horas (`0 */6 * * *`)
+- **Frequência:** A cada 6 dias (`0 0 */6 * *`, horário UTC)
 - **O que faz:** Executa uma query simples (`SELECT id FROM categories LIMIT 1`) para registrar atividade no banco
-- **Autenticação:** Requer o header `Authorization: Bearer <CRON_SECRET>` (a Vercel injeta automaticamente)
+- **Autenticação:** Se `CRON_SECRET` estiver definida, requer o header `Authorization: Bearer <CRON_SECRET>`
 
-Para funcionar, adicione a variável de ambiente `CRON_SECRET` no painel da Vercel. A Vercel gera esse valor automaticamente ao detectar o `vercel.json` com crons configurados.
+Recomendação: adicione a variável de ambiente `CRON_SECRET` no painel da Vercel para proteger a rota do cron.
 
 ## Deploy on Vercel
 

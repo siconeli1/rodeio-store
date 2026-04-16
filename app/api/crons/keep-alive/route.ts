@@ -1,24 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createServerClient } from "@supabase/ssr"
+import { createClient } from "../../../../lib/supabase/server"
 
 export async function GET(request: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET
   const authHeader = request.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json(
+      { status: "error", message: "Nao autorizado" },
+      { status: 401 },
+    )
   }
 
   try {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { getAll: () => [], setAll: () => {} } },
-    )
+    const supabase = await createClient()
 
     const { data, error } = await supabase
       .from("categories")
       .select("id")
       .limit(1)
-      .single()
+      .maybeSingle()
 
     if (error) {
       return NextResponse.json(
@@ -30,13 +31,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: "ok",
       timestamp: new Date().toISOString(),
-      categoryId: data.id,
+      categoryId: data?.id ?? null,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro desconhecido"
-    return NextResponse.json(
-      { status: "error", message },
-      { status: 500 },
-    )
+    return NextResponse.json({ status: "error", message }, { status: 500 })
   }
 }
