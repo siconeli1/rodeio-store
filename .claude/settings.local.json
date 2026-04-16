@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx shadcn@latest add input label card --yes)",
-      "Bash(./node_modules/.bin/tsc --noEmit)"
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(npx shadcn@latest add skeleton badge select separator --yes)"
     ]
   }
 }
