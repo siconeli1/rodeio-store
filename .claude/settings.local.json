@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx shadcn@latest add input label card --yes)",
+      "Bash(./node_modules/.bin/tsc --noEmit)"
+    ]
+  }
+}
