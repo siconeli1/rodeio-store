@@ -29,6 +29,17 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Cron Jobs
+
+O projeto inclui um cron job configurado via Vercel para manter o banco de dados Supabase (free tier) sempre ativo. O free tier do Supabase pausa projetos inativos após 7 dias sem requisições.
+
+- **Rota:** `GET /api/crons/keep-alive`
+- **Frequência:** A cada 6 horas (`0 */6 * * *`)
+- **O que faz:** Executa uma query simples (`SELECT id FROM categories LIMIT 1`) para registrar atividade no banco
+- **Autenticação:** Requer o header `Authorization: Bearer <CRON_SECRET>` (a Vercel injeta automaticamente)
+
+Para funcionar, adicione a variável de ambiente `CRON_SECRET` no painel da Vercel. A Vercel gera esse valor automaticamente ao detectar o `vercel.json` com crons configurados.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
