@@ -1,6 +1,8 @@
 import { createClient } from "./server"
 import type {
+  Address,
   Category,
+  OrderWithItems,
   ProductWithCategory,
   ProductWithVariants,
 } from "@/types/database"
@@ -126,7 +128,9 @@ export async function getProductBySlug(
   const supabase = await createClient()
   const { data } = await supabase
     .from("products")
-    .select("*, category:categories(*), product_variants(*)")
+    .select(
+      "*, category:categories(*), product_variants(*), product_color_images(*)",
+    )
     .eq("slug", slug)
     .eq("is_active", true)
     .maybeSingle()
@@ -136,6 +140,71 @@ export async function getProductBySlug(
 
 // ---------------------------------------------------------------------------
 // Tamanhos disponíveis (para filtro global)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Pedidos do usuário
+// ---------------------------------------------------------------------------
+
+export async function getUserOrders(userId: string): Promise<OrderWithItems[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("orders")
+    .select("*, order_items(*)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+
+  return (data ?? []) as unknown as OrderWithItems[]
+}
+
+export async function getUserOrderById(
+  userId: string,
+  orderId: string,
+): Promise<OrderWithItems | null> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("orders")
+    .select("*, order_items(*)")
+    .eq("id", orderId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  return data as unknown as OrderWithItems | null
+}
+
+// ---------------------------------------------------------------------------
+// Endereços do usuário
+// ---------------------------------------------------------------------------
+
+export async function getUserAddresses(userId: string): Promise<Address[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("addresses")
+    .select("*")
+    .eq("user_id", userId)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: false })
+
+  return (data ?? []) as Address[]
+}
+
+// ---------------------------------------------------------------------------
+// Perfil do usuário
+// ---------------------------------------------------------------------------
+
+export async function getUserProfile(userId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("profiles")
+    .select("full_name, phone, is_admin")
+    .eq("id", userId)
+    .maybeSingle()
+
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Tamanhos disponíveis
 // ---------------------------------------------------------------------------
 
 export async function getAvailableSizes(): Promise<string[]> {

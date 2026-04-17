@@ -14,9 +14,9 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   const category = await getCategoryBySlug(slug)
-  if (!category) return { title: "Categoria não encontrada — RodeioStore" }
+  if (!category) return { title: "Categoria não encontrada" }
   return {
-    title: `${category.name} — RodeioStore`,
+    title: category.name,
     description:
       category.description ?? `Confira produtos da categoria ${category.name}.`,
   }

@@ -14,10 +14,17 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   const product = await getProductBySlug(slug)
-  if (!product) return { title: "Produto não encontrado — RodeioStore" }
+  if (!product) return { title: "Produto não encontrado" }
+  const description =
+    product.description ?? `Confira ${product.name} na RodeioStore.`
   return {
-    title: `${product.name} — RodeioStore`,
-    description: product.description ?? `Confira ${product.name} na RodeioStore.`,
+    title: product.name,
+    description,
+    openGraph: {
+      title: product.name,
+      description,
+      images: product.images?.length ? [{ url: product.images[0] }] : undefined,
+    },
   }
 }
 

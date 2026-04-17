@@ -12,7 +12,7 @@ import { ProductFilters } from "@/components/store/product-filters"
 import { ProductSort as SortSelect } from "@/components/store/product-sort"
 
 export const metadata: Metadata = {
-  title: "Produtos — RodeioStore",
+  title: "Produtos",
   description:
     "Explore nosso catálogo de moda country: camisas, botas, chapéus e muito mais.",
 }

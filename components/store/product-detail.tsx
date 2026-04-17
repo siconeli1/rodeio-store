@@ -18,6 +18,13 @@ interface ProductDetailProps {
 
 export function ProductDetail({ product }: ProductDetailProps) {
   const variants = product.product_variants
+  const colorImagesByColor = useMemo(() => {
+    const map = new Map<string, string[]>()
+    product.product_color_images?.forEach((c) => {
+      if (c.images.length > 0) map.set(c.color, c.images)
+    })
+    return map
+  }, [product.product_color_images])
 
   const colors = useMemo(() => {
     const map = new Map<string, { hex: string | null }>()
@@ -43,6 +50,13 @@ export function ProductDetail({ product }: ProductDetailProps) {
   const [selectedColor, setSelectedColor] = useState(colors[0]?.name ?? "")
   const [selectedSize, setSelectedSize] = useState("")
   const [quantity, setQuantity] = useState(1)
+
+  // Galeria: imagens da cor selecionada (com fallback para product.images)
+  const galleryImages = useMemo(() => {
+    const fromColor = colorImagesByColor.get(selectedColor)
+    if (fromColor && fromColor.length > 0) return fromColor
+    return product.images
+  }, [colorImagesByColor, selectedColor, product.images])
 
   const selectedVariant: ProductVariant | undefined = useMemo(
     () =>
@@ -81,7 +95,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
       productId: product.id,
       variantId: selectedVariant.id,
       name: product.name,
-      image: product.images[0] ?? "",
+      image: galleryImages[0] ?? product.images[0] ?? "",
       price: product.price,
       size: selectedVariant.size,
       color: selectedVariant.color,
@@ -94,7 +108,11 @@ export function ProductDetail({ product }: ProductDetailProps) {
 
   return (
     <div className="grid gap-8 md:grid-cols-2 md:gap-12">
-      <ImageGallery images={product.images} alt={product.name} />
+      <ImageGallery
+        key={selectedColor}
+        images={galleryImages}
+        alt={product.name}
+      />
 
       <div className="flex flex-col gap-4">
         {product.category ? (

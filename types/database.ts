@@ -33,6 +33,15 @@ export interface ProductVariant {
   created_at: string
 }
 
+export interface ProductColorImages {
+  id: string
+  product_id: string
+  color: string
+  images: string[]
+  created_at: string
+  updated_at: string
+}
+
 export interface ProductWithCategory extends Product {
   category: Category | null
 }
@@ -40,6 +49,28 @@ export interface ProductWithCategory extends Product {
 export interface ProductWithVariants extends Product {
   category: Category | null
   product_variants: ProductVariant[]
+  product_color_images: ProductColorImages[]
+}
+
+// ---------------------------------------------------------------------------
+// Endereços
+// ---------------------------------------------------------------------------
+
+export interface Address {
+  id: string
+  user_id: string
+  label: string
+  full_name: string
+  phone: string
+  zip_code: string
+  street: string
+  number: string
+  complement: string | null
+  neighborhood: string
+  city: string
+  state: string
+  is_default: boolean
+  created_at: string
 }
 
 // ---------------------------------------------------------------------------

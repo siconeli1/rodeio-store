@@ -129,6 +129,8 @@ export function PixPayment({
       {/* QR Code */}
       <Card className="flex flex-col items-center gap-4 p-6">
         {qrCodeBase64 ? (
+          // QR Code vem como data URL base64 do Mercado Pago — next/image não otimiza data URLs.
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={`data:image/png;base64,${qrCodeBase64}`}
             alt="QR Code PIX"

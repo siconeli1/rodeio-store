@@ -7,7 +7,8 @@
       "Bash(npx shadcn@latest *)",
       "Bash(npm run *)",
       "Bash(npm install *)",
-      "Bash(node -e \"const mp = require\\('mercadopago'\\); console.log\\(Object.keys\\(mp\\)\\)\")"
+      "Bash(node -e \"const mp = require\\('mercadopago'\\); console.log\\(Object.keys\\(mp\\)\\)\")",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }
