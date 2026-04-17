@@ -11,3 +11,17 @@ export function getAppUrl(): string {
   }
   return "http://localhost:3000"
 }
+
+/**
+ * Sanitiza o destino de redirecionamento para evitar open redirect e
+ * navegaÃ§Ãµes inconsistentes.
+ */
+export function sanitizeNextPath(
+  next: string | null | undefined,
+  fallback = "/conta",
+): string {
+  if (!next) return fallback
+  if (!next.startsWith("/")) return fallback
+  if (next.startsWith("//")) return fallback
+  return next
+}

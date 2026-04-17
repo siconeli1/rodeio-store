@@ -4,6 +4,7 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { requireCurrentUserAdmin } from "@/lib/auth/admin"
 
 export type ActionResult = { success: boolean; error?: string; id?: string }
 
@@ -41,6 +42,10 @@ export async function createProduct(
   input: ProductInput,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
     const parsed = productSchema.safeParse(input)
     if (!parsed.success) {
@@ -104,6 +109,10 @@ export async function updateProduct(
   input: ProductInput,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
     const parsed = productSchema.safeParse(input)
     if (!parsed.success) {
@@ -176,6 +185,10 @@ export async function deleteProduct(
   productId: string,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
 
     // Deletar variantes primeiro
@@ -204,6 +217,10 @@ export async function uploadProductImage(
   formData: FormData,
 ): Promise<{ url: string } | { error: string }> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
     const file = formData.get("file") as File | null
     if (!file || !(file instanceof File) || file.size === 0) {

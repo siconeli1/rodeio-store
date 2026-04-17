@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { sanitizeNextPath } from "@/lib/url"
 
 export async function signInAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim()
@@ -25,5 +26,5 @@ export async function signInAction(formData: FormData) {
   }
 
   revalidatePath("/", "layout")
-  redirect(next.startsWith("/") ? next : "/conta")
+  redirect(sanitizeNextPath(next, "/conta"))
 }

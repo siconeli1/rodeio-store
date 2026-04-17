@@ -7,7 +7,7 @@ import {
   ShoppingCart,
   ArrowLeft,
 } from "lucide-react"
-import { createClient } from "@/lib/supabase/server"
+import { getCurrentUserAdminAccess } from "@/lib/auth/admin"
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -21,20 +21,10 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const access = await getCurrentUserAdminAccess()
 
-  if (!user) redirect("/entrar?next=/admin")
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin")
-    .eq("id", user.id)
-    .maybeSingle()
-
-  if (!profile?.is_admin) redirect("/conta?erro=admin")
+  if (!access.user) redirect("/entrar?next=/admin")
+  if (!access.isAdmin) redirect("/conta")
 
   return (
     <div className="flex min-h-screen">

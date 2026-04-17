@@ -3,6 +3,7 @@
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
+import { requireCurrentUserAdmin } from "@/lib/auth/admin"
 
 export type ActionResult = { success: boolean; error?: string }
 
@@ -17,6 +18,10 @@ export async function createCategory(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
     const raw = Object.fromEntries(formData)
     const parsed = categorySchema.safeParse(raw)
@@ -52,6 +57,10 @@ export async function updateCategory(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
     const raw = Object.fromEntries(formData)
     const parsed = categorySchema.safeParse(raw)
@@ -89,6 +98,10 @@ export async function deleteCategory(
   categoryId: string,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from("categories")

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
+import { requireCurrentUserAdmin } from "@/lib/auth/admin"
 
 export type ActionResult = { success: boolean; error?: string }
 
@@ -18,6 +19,10 @@ export async function updateOrderStatus(
   status: string,
 ): Promise<ActionResult> {
   try {
+    if (!(await requireCurrentUserAdmin())) {
+      return { success: false, error: "Acesso negado" }
+    }
+
     if (!VALID_STATUSES.includes(status)) {
       return { success: false, error: "Status inválido" }
     }
