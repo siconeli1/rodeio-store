@@ -34,7 +34,7 @@ export default async function AdminLayout({
     .eq("id", user.id)
     .maybeSingle()
 
-  if (!profile?.is_admin) redirect("/")
+  if (!profile?.is_admin) redirect("/conta?erro=admin")
 
   return (
     <div className="flex min-h-screen">

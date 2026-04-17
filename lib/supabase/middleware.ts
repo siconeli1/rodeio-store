@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 
 const PROTECTED_PREFIXES = ["/conta", "/admin", "/checkout"]
-const ADMIN_PREFIX = "/admin"
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request })
@@ -43,21 +42,6 @@ export async function updateSession(request: NextRequest) {
     loginUrl.pathname = "/entrar"
     loginUrl.searchParams.set("next", pathname)
     return NextResponse.redirect(loginUrl)
-  }
-
-  // Rotas /admin exigem is_admin = true no perfil
-  if (pathname.startsWith(ADMIN_PREFIX) && user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("is_admin")
-      .eq("id", user.id)
-      .maybeSingle()
-
-    if (!profile?.is_admin) {
-      const homeUrl = request.nextUrl.clone()
-      homeUrl.pathname = "/"
-      return NextResponse.redirect(homeUrl)
-    }
   }
 
   return response
