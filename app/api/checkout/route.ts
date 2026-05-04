@@ -1,10 +1,21 @@
-import { NextRequest, NextResponse } from "next/server"
+﻿import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { payment } from "@/lib/mercadopago/client"
 import { checkoutSchema } from "@/lib/checkout-schema"
 
 const SHIPPING_COST = 15
+
+type NormalizedCheckoutItem = {
+  variantId: string
+  quantity: number
+  productId: string
+  productName: string
+  productImage: string | null
+  size: string
+  color: string
+  unitPrice: number
+}
 
 function createSupabaseAdmin() {
   return createServerClient(
@@ -28,9 +39,11 @@ async function getAuthUser() {
       },
     },
   )
+
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
   return user
 }
 
@@ -38,14 +51,14 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser()
     if (!user) {
-      return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "Nao autenticado" }, { status: 401 })
     }
 
     const body = await request.json()
     const parsed = checkoutSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json(
-        { error: "Dados inválidos", details: parsed.error.flatten() },
+        { error: "Dados invalidos", details: parsed.error.flatten() },
         { status: 400 },
       )
     }
@@ -53,16 +66,24 @@ export async function POST(request: NextRequest) {
     const { address, items, payment: paymentData } = parsed.data
     const supabase = createSupabaseAdmin()
 
-    // Validar estoque e preços atuais
-    const variantIds = items.map((i) => i.variantId)
+    // Normaliza itens por variante para evitar inconsistencias por payload duplicado.
+    const quantityByVariant = new Map<string, number>()
+    for (const item of items) {
+      quantityByVariant.set(
+        item.variantId,
+        (quantityByVariant.get(item.variantId) ?? 0) + item.quantity,
+      )
+    }
+
+    const variantIds = Array.from(quantityByVariant.keys())
     const { data: variants, error: variantsError } = await supabase
       .from("product_variants")
       .select("id, product_id, stock, size, color")
       .in("id", variantIds)
 
-    if (variantsError || !variants || variants.length !== items.length) {
+    if (variantsError || !variants || variants.length !== variantIds.length) {
       return NextResponse.json(
-        { error: "Um ou mais itens não foram encontrados" },
+        { error: "Um ou mais itens nao foram encontrados" },
         { status: 400 },
       )
     }
@@ -70,13 +91,13 @@ export async function POST(request: NextRequest) {
     const productIds = [...new Set(variants.map((v) => v.product_id))]
     const { data: products } = await supabase
       .from("products")
-      .select("id, price, name")
+      .select("id, price, name, images")
       .in("id", productIds)
       .eq("is_active", true)
 
-    if (!products || products.length === 0) {
+    if (!products || products.length !== productIds.length) {
       return NextResponse.json(
-        { error: "Produtos indisponíveis" },
+        { error: "Um ou mais produtos estao indisponiveis" },
         { status: 400 },
       )
     }
@@ -84,34 +105,64 @@ export async function POST(request: NextRequest) {
     const productMap = new Map(products.map((p) => [p.id, p]))
     const variantMap = new Map(variants.map((v) => [v.id, v]))
 
-    // Validar estoque
-    for (const item of items) {
-      const variant = variantMap.get(item.variantId)
-      if (!variant || variant.stock < item.quantity) {
+    let subtotal = 0
+    const normalizedItems: NormalizedCheckoutItem[] = []
+
+    for (const [variantId, quantity] of quantityByVariant) {
+      const variant = variantMap.get(variantId)
+      const product = variant ? productMap.get(variant.product_id) : null
+
+      if (!variant || !product) {
         return NextResponse.json(
-          { error: `Estoque insuficiente para "${item.name}"` },
+          { error: "Um ou mais itens estao indisponiveis no momento" },
           { status: 400 },
         )
       }
-    }
 
-    // Calcular subtotal com preços do banco (prevenção de fraude)
-    let subtotal = 0
-    const orderItems = items.map((item) => {
-      const variant = variantMap.get(item.variantId)!
-      const product = productMap.get(variant.product_id)!
-      subtotal += product.price * item.quantity
-      return {
-        product_id: variant.product_id,
-        variant_id: item.variantId,
-        product_name: item.name,
-        product_image: item.image || null,
+      if (variant.stock < quantity) {
+        return NextResponse.json(
+          { error: `Estoque insuficiente para \"${product.name}\"` },
+          { status: 400 },
+        )
+      }
+
+      const unitPrice = Number(product.price)
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        return NextResponse.json(
+          { error: `Preco invalido para \"${product.name}\"` },
+          { status: 400 },
+        )
+      }
+
+      const productImage =
+        Array.isArray(product.images) && typeof product.images[0] === "string"
+          ? product.images[0]
+          : null
+
+      normalizedItems.push({
+        variantId,
+        quantity,
+        productId: variant.product_id,
+        productName: product.name,
+        productImage,
         size: variant.size,
         color: variant.color,
-        quantity: item.quantity,
-        unit_price: product.price,
-      }
-    })
+        unitPrice,
+      })
+
+      subtotal += unitPrice * quantity
+    }
+
+    const orderItems = normalizedItems.map((item) => ({
+      product_id: item.productId,
+      variant_id: item.variantId,
+      product_name: item.productName,
+      product_image: item.productImage,
+      size: item.size,
+      color: item.color,
+      quantity: item.quantity,
+      unit_price: item.unitPrice,
+    }))
 
     const total = subtotal + SHIPPING_COST
 
@@ -128,16 +179,14 @@ export async function POST(request: NextRequest) {
             email: user.email!,
             identification: { type: "CPF", number: paymentData.cpf },
           },
-          description: `RodeioStore - Pedido`,
+          description: "RodeioStore - Pedido",
           notification_url: `${appUrl}/api/webhooks/mercadopago`,
         },
         requestOptions: { idempotencyKey },
       })
 
       const pixData = mpPayment.point_of_interaction?.transaction_data
-      const expiresAt = new Date(
-        Date.now() + 30 * 60 * 1000,
-      ).toISOString()
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
 
       // Criar pedido no banco
       const { data: order, error: orderError } = await supabase
@@ -172,19 +221,24 @@ export async function POST(request: NextRequest) {
         .insert(orderItems.map((item) => ({ ...item, order_id: order.id })))
 
       // Decrementar estoque
-      for (const item of items) {
-        await supabase.rpc("decrement_stock", {
-          p_variant_id: item.variantId,
-          p_quantity: item.quantity,
-        }).then(({ error }) => {
-          if (error) {
-            // Fallback: update direto
-            return supabase
-              .from("product_variants")
-              .update({ stock: variantMap.get(item.variantId)!.stock - item.quantity })
-              .eq("id", item.variantId)
-          }
-        })
+      for (const item of normalizedItems) {
+        await supabase
+          .rpc("decrement_stock", {
+            p_variant_id: item.variantId,
+            p_quantity: item.quantity,
+          })
+          .then(({ error }) => {
+            if (error) {
+              const variant = variantMap.get(item.variantId)
+              if (!variant) return
+
+              // Fallback: update direto
+              return supabase
+                .from("product_variants")
+                .update({ stock: variant.stock - item.quantity })
+                .eq("id", item.variantId)
+            }
+          })
       }
 
       return NextResponse.json({
@@ -196,7 +250,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Cartão de crédito
+    // Cartao de credito
     const mpPayment = await payment.create({
       body: {
         transaction_amount: total,
@@ -205,8 +259,8 @@ export async function POST(request: NextRequest) {
           email: user.email!,
           identification: { type: "CPF", number: paymentData.cpf },
         },
-        token: paymentData.cardNumber, // Em produção seria o card token do SDK frontend
-        description: `RodeioStore - Pedido`,
+        token: paymentData.cardNumber, // Em producao, usar card token do SDK frontend.
+        description: "RodeioStore - Pedido",
         installments: paymentData.installments,
         notification_url: `${appUrl}/api/webhooks/mercadopago`,
       },
@@ -244,10 +298,13 @@ export async function POST(request: NextRequest) {
       .insert(orderItems.map((item) => ({ ...item, order_id: order.id })))
 
     // Decrementar estoque
-    for (const item of items) {
+    for (const item of normalizedItems) {
+      const variant = variantMap.get(item.variantId)
+      if (!variant) continue
+
       await supabase
         .from("product_variants")
-        .update({ stock: variantMap.get(item.variantId)!.stock - item.quantity })
+        .update({ stock: variant.stock - item.quantity })
         .eq("id", item.variantId)
     }
 

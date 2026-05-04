@@ -3,7 +3,7 @@ import type { Metadata } from "next"
 import {
   getProducts,
   getCategories,
-  getAvailableSizes,
+  getSizesByCategorySlug,
   type ProductSort,
 } from "@/lib/supabase/queries"
 import { ProductGrid } from "@/components/store/product-grid"
@@ -34,10 +34,13 @@ export default async function ProdutosPage({
     ? ordem
     : "newest") as ProductSort
 
+  // Tamanho só é aplicado quando há categoria selecionada — evita filtros inválidos
+  const sizeFilter = categoria ? tamanho : undefined
+
   const [products, categories, availableSizes] = await Promise.all([
-    getProducts({ categorySlug: categoria, size: tamanho, sort }),
+    getProducts({ categorySlug: categoria, size: sizeFilter, sort }),
     getCategories(),
-    getAvailableSizes(),
+    categoria ? getSizesByCategorySlug(categoria) : Promise.resolve([]),
   ])
 
   return (

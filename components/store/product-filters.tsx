@@ -28,6 +28,10 @@ export function ProductFilters({
       } else {
         params.delete(key)
       }
+      // Trocar de categoria invalida o tamanho atual (a lista de tamanhos é por categoria)
+      if (key === "categoria") {
+        params.delete("tamanho")
+      }
       router.push(`/produtos?${params.toString()}`, { scroll: false })
     },
     [router, searchParams],

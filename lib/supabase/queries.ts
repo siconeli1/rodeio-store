@@ -214,10 +214,49 @@ export async function getAvailableSizes(): Promise<string[]> {
     .select("size")
     .gt("stock", 0)
 
-  const unique = [...new Set((data ?? []).map((v) => v.size))]
+  return sortSizes([...new Set((data ?? []).map((v) => v.size))])
+}
+
+export async function getSizesByCategorySlug(
+  slug: string,
+): Promise<string[]> {
+  const supabase = await createClient()
+
+  const category = await getCategoryBySlug(slug)
+  if (!category) return []
+
+  // Produtos ativos da categoria
+  const { data: products } = await supabase
+    .from("products")
+    .select("id")
+    .eq("is_active", true)
+    .eq("category_id", category.id)
+
+  const productIds = (products ?? []).map((p) => p.id)
+  if (productIds.length === 0) return []
+
+  const { data: variants } = await supabase
+    .from("product_variants")
+    .select("size")
+    .gt("stock", 0)
+    .in("product_id", productIds)
+
+  return sortSizes([...new Set((variants ?? []).map((v) => v.size))])
+}
+
+// Ordena tamanhos: numéricos primeiro (asc), depois letras na ordem PP→XG, depois o restante
+function sortSizes(sizes: string[]): string[] {
   const order = ["PP", "P", "M", "G", "GG", "XG", "Único"]
-  return unique.sort(
-    (a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) -
-              (order.indexOf(b) === -1 ? 99 : order.indexOf(b)),
-  )
+  return sizes.sort((a, b) => {
+    const aNum = Number(a)
+    const bNum = Number(b)
+    const aIsNum = !Number.isNaN(aNum)
+    const bIsNum = !Number.isNaN(bNum)
+    if (aIsNum && bIsNum) return aNum - bNum
+    if (aIsNum) return -1
+    if (bIsNum) return 1
+    const ai = order.indexOf(a)
+    const bi = order.indexOf(b)
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+  })
 }

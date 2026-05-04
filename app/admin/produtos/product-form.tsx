@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { toast } from "sonner"
 import { Plus, Trash2, Upload, X } from "lucide-react"
+import { Popover } from "radix-ui"
+import { HexColorPicker } from "react-colorful"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -529,22 +531,47 @@ export function ProductForm({ categories, product }: ProductFormProps) {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Hex</Label>
-                    <div className="flex gap-1.5">
-                      <Input
-                        value={v.color_hex}
-                        onChange={(e) =>
-                          updateVariant(v.key, "color_hex", e.target.value)
-                        }
-                        placeholder="#1E40AF"
-                        className="flex-1"
-                      />
-                      {v.color_hex && (
-                        <div
-                          className="size-9 shrink-0 rounded-md border"
-                          style={{ backgroundColor: v.color_hex }}
-                        />
-                      )}
-                    </div>
+                    <Popover.Root>
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-2 text-sm shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <span
+                            className="size-5 shrink-0 rounded border"
+                            style={{
+                              backgroundColor: v.color_hex || "transparent",
+                              backgroundImage: v.color_hex
+                                ? undefined
+                                : "linear-gradient(45deg, #ddd 25%, transparent 25%), linear-gradient(-45deg, #ddd 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ddd 75%), linear-gradient(-45deg, transparent 75%, #ddd 75%)",
+                              backgroundSize: "8px 8px",
+                              backgroundPosition:
+                                "0 0, 0 4px, 4px -4px, -4px 0",
+                            }}
+                          />
+                          <span className="truncate font-mono text-xs">
+                            {v.color_hex || "Escolher"}
+                          </span>
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          align="start"
+                          sideOffset={6}
+                          className="z-50 rounded-md border bg-popover p-3 shadow-md"
+                        >
+                          <HexColorPicker
+                            color={v.color_hex || "#000000"}
+                            onChange={(hex) =>
+                              updateVariant(v.key, "color_hex", hex)
+                            }
+                          />
+                          <p className="mt-2 text-center font-mono text-xs text-muted-foreground">
+                            {v.color_hex || "—"}
+                          </p>
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Estoque</Label>
