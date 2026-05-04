@@ -1,10 +1,10 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { toast } from "sonner"
-import { Plus, Trash2, Upload, X } from "lucide-react"
+import { Clipboard, Copy, Plus, Trash2, Upload, X } from "lucide-react"
 import { Popover } from "radix-ui"
 import { HexColorPicker } from "react-colorful"
 import { Button } from "@/components/ui/button"
@@ -531,47 +531,12 @@ export function ProductForm({ categories, product }: ProductFormProps) {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Hex</Label>
-                    <Popover.Root>
-                      <Popover.Trigger asChild>
-                        <button
-                          type="button"
-                          className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-2 text-sm shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                          <span
-                            className="size-5 shrink-0 rounded border"
-                            style={{
-                              backgroundColor: v.color_hex || "transparent",
-                              backgroundImage: v.color_hex
-                                ? undefined
-                                : "linear-gradient(45deg, #ddd 25%, transparent 25%), linear-gradient(-45deg, #ddd 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ddd 75%), linear-gradient(-45deg, transparent 75%, #ddd 75%)",
-                              backgroundSize: "8px 8px",
-                              backgroundPosition:
-                                "0 0, 0 4px, 4px -4px, -4px 0",
-                            }}
-                          />
-                          <span className="truncate font-mono text-xs">
-                            {v.color_hex || "Escolher"}
-                          </span>
-                        </button>
-                      </Popover.Trigger>
-                      <Popover.Portal>
-                        <Popover.Content
-                          align="start"
-                          sideOffset={6}
-                          className="z-50 rounded-md border bg-popover p-3 shadow-md"
-                        >
-                          <HexColorPicker
-                            color={v.color_hex || "#000000"}
-                            onChange={(hex) =>
-                              updateVariant(v.key, "color_hex", hex)
-                            }
-                          />
-                          <p className="mt-2 text-center font-mono text-xs text-muted-foreground">
-                            {v.color_hex || "—"}
-                          </p>
-                        </Popover.Content>
-                      </Popover.Portal>
-                    </Popover.Root>
+                    <ColorPickerPopover
+                      value={v.color_hex}
+                      onChange={(hex) =>
+                        updateVariant(v.key, "color_hex", hex)
+                      }
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Estoque</Label>
@@ -629,5 +594,124 @@ export function ProductForm({ categories, product }: ProductFormProps) {
         </Button>
       </div>
     </form>
+  )
+}
+
+const HEX_RE = /^#[0-9A-F]{6}$/i
+
+interface ColorPickerPopoverProps {
+  value: string
+  onChange: (hex: string) => void
+}
+
+function ColorPickerPopover({ value, onChange }: ColorPickerPopoverProps) {
+  // draft permite digitar valores parciais ("#a8") sem invalidar o picker
+  const [draft, setDraft] = useState(value)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  function handleHexInput(next: string) {
+    setDraft(next)
+    if (HEX_RE.test(next)) {
+      onChange(next)
+    }
+  }
+
+  async function copyHex() {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success("Código copiado!")
+    } catch {
+      toast.error("Não foi possível copiar")
+    }
+  }
+
+  async function pasteHex() {
+    try {
+      const text = (await navigator.clipboard.readText()).trim()
+      if (HEX_RE.test(text)) {
+        setDraft(text)
+        onChange(text)
+        toast.success("Código colado!")
+      } else {
+        toast.error("HEX inválido na área de transferência")
+      }
+    } catch {
+      toast.error("Não foi possível ler a área de transferência")
+    }
+  }
+
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-2 text-sm shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <span
+            className="size-5 shrink-0 rounded border"
+            style={{
+              backgroundColor: value || "transparent",
+              backgroundImage: value
+                ? undefined
+                : "linear-gradient(45deg, #ddd 25%, transparent 25%), linear-gradient(-45deg, #ddd 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ddd 75%), linear-gradient(-45deg, transparent 75%, #ddd 75%)",
+              backgroundSize: "8px 8px",
+              backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0",
+            }}
+          />
+          <span className="truncate font-mono text-xs">
+            {value || "Escolher"}
+          </span>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 w-[228px] space-y-2 rounded-md border bg-popover p-3 shadow-md"
+        >
+          <HexColorPicker
+            color={value || "#000000"}
+            onChange={onChange}
+          />
+          <div className="flex gap-1.5">
+            <Input
+              value={draft}
+              onChange={(e) => handleHexInput(e.target.value)}
+              placeholder="#A85320"
+              maxLength={7}
+              spellCheck={false}
+              className="h-8 font-mono text-xs uppercase"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 shrink-0 p-0"
+              onClick={copyHex}
+              disabled={!value}
+              title="Copiar HEX"
+              aria-label="Copiar HEX"
+            >
+              <Copy className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 shrink-0 p-0"
+              onClick={pasteHex}
+              title="Colar HEX da área de transferência"
+              aria-label="Colar HEX"
+            >
+              <Clipboard className="size-3.5" />
+            </Button>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }
