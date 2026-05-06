@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { Separator } from "@/components/ui/separator"
 import { formatPrice } from "@/lib/format"
+import { formatVariantOptionLabel } from "@/lib/product-options"
 import type { CartItem } from "@/store/cart"
 
 interface OrderSummaryProps {
@@ -19,7 +20,10 @@ export function OrderSummary({ items, subtotal, shippingCost }: OrderSummaryProp
       <h2 className="mb-4 text-lg font-semibold">Resumo do pedido</h2>
 
       <ul className="space-y-3">
-        {items.map((item) => (
+        {items.map((item) => {
+          const optionLabel = formatVariantOptionLabel(item.color, item.size)
+
+          return (
           <li key={item.variantId} className="flex gap-3">
             <div className="relative size-14 shrink-0 overflow-hidden rounded-md border bg-muted">
               {item.image ? (
@@ -40,7 +44,7 @@ export function OrderSummary({ items, subtotal, shippingCost }: OrderSummaryProp
               <div>
                 <p className="font-medium">{item.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {item.color} / {item.size} &middot; Qtd: {item.quantity}
+                  {optionLabel ? `${optionLabel} - ` : ""}Qtd: {item.quantity}
                 </p>
               </div>
               <span className="font-medium">
@@ -48,7 +52,8 @@ export function OrderSummary({ items, subtotal, shippingCost }: OrderSummaryProp
               </span>
             </div>
           </li>
-        ))}
+          )
+        })}
       </ul>
 
       <Separator className="my-4" />

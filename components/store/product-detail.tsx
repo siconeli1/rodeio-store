@@ -8,6 +8,10 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ImageGallery } from "./image-gallery"
 import { formatPrice, getDiscountPercent } from "@/lib/format"
+import {
+  isDefaultColorOption,
+  isDefaultSizeOption,
+} from "@/lib/product-options"
 import { cn } from "@/lib/utils"
 import { useCartStore } from "@/store/cart"
 import type { ProductWithVariants, ProductVariant } from "@/types/database"
@@ -18,6 +22,11 @@ interface ProductDetailProps {
 
 export function ProductDetail({ product }: ProductDetailProps) {
   const variants = product.product_variants
+  const firstAvailableVariant = useMemo(
+    () => variants.find((v) => v.stock > 0) ?? variants[0],
+    [variants],
+  )
+
   const colorImagesByColor = useMemo(() => {
     const map = new Map<string, string[]>()
     product.product_color_images?.forEach((c) => {
@@ -38,7 +47,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
   }, [variants])
 
   const sizes = useMemo(() => {
-    const order = ["PP", "P", "M", "G", "GG", "XG", "Único"]
+    const order = ["PP", "P", "M", "G", "GG", "XG", "Unico"]
     const unique = [...new Set(variants.map((v) => v.size))]
     return unique.sort(
       (a, b) =>
@@ -47,31 +56,60 @@ export function ProductDetail({ product }: ProductDetailProps) {
     )
   }, [variants])
 
-  const [selectedColor, setSelectedColor] = useState(colors[0]?.name ?? "")
-  const [selectedSize, setSelectedSize] = useState("")
+  const shouldShowColorSelector = useMemo(
+    () => colors.length > 1 || colors.some((c) => !isDefaultColorOption(c.name)),
+    [colors],
+  )
+  const shouldShowSizeSelector = useMemo(
+    () => sizes.length > 1 || sizes.some((size) => !isDefaultSizeOption(size)),
+    [sizes],
+  )
+
+  const [selectedColor, setSelectedColor] = useState(
+    shouldShowColorSelector
+      ? colors[0]?.name ?? ""
+      : firstAvailableVariant?.color ?? "",
+  )
+  const [selectedSize, setSelectedSize] = useState(
+    shouldShowSizeSelector ? "" : firstAvailableVariant?.size ?? "",
+  )
   const [quantity, setQuantity] = useState(1)
 
-  // Galeria: imagens da cor selecionada (com fallback para product.images)
   const galleryImages = useMemo(() => {
     const fromColor = colorImagesByColor.get(selectedColor)
     if (fromColor && fromColor.length > 0) return fromColor
     return product.images
   }, [colorImagesByColor, selectedColor, product.images])
 
-  const selectedVariant: ProductVariant | undefined = useMemo(
-    () =>
-      variants.find(
-        (v) => v.color === selectedColor && v.size === selectedSize,
-      ),
-    [variants, selectedColor, selectedSize],
-  )
+  const selectedVariant: ProductVariant | undefined = useMemo(() => {
+    if (!shouldShowColorSelector && !shouldShowSizeSelector) {
+      return firstAvailableVariant
+    }
+
+    return variants.find(
+      (v) =>
+        (!shouldShowColorSelector || v.color === selectedColor) &&
+        (!shouldShowSizeSelector || v.size === selectedSize),
+    )
+  }, [
+    firstAvailableVariant,
+    shouldShowColorSelector,
+    shouldShowSizeSelector,
+    variants,
+    selectedColor,
+    selectedSize,
+  ])
 
   const sizesForColor = useMemo(
     () =>
       variants
-        .filter((v) => v.color === selectedColor && v.stock > 0)
+        .filter(
+          (v) =>
+            (!shouldShowColorSelector || v.color === selectedColor) &&
+            v.stock > 0,
+        )
         .map((v) => v.size),
-    [variants, selectedColor],
+    [variants, shouldShowColorSelector, selectedColor],
   )
 
   const hasDiscount =
@@ -84,13 +122,19 @@ export function ProductDetail({ product }: ProductDetailProps) {
 
   function handleAddToCart() {
     if (!selectedVariant) {
-      toast.error("Selecione o tamanho e a cor.")
+      toast.error(
+        variants.length === 0
+          ? "Produto sem estoque cadastrado."
+          : "Selecione as opcoes do produto.",
+      )
       return
     }
+
     if (selectedVariant.stock < quantity) {
-      toast.error("Quantidade indisponível no estoque.")
+      toast.error("Quantidade indisponivel no estoque.")
       return
     }
+
     addToCart({
       productId: product.id,
       variantId: selectedVariant.id,
@@ -141,8 +185,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
 
         <Separator />
 
-        {/* Cor */}
-        {colors.length > 0 ? (
+        {shouldShowColorSelector ? (
           <div className="space-y-2">
             <p className="text-sm font-medium">
               Cor: <span className="font-normal">{selectedColor}</span>
@@ -153,7 +196,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
                   key={color.name}
                   onClick={() => {
                     setSelectedColor(color.name)
-                    setSelectedSize("")
+                    setSelectedSize(shouldShowSizeSelector ? "" : sizes[0] ?? "")
                     setQuantity(1)
                   }}
                   title={color.name}
@@ -163,9 +206,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
                       ? "border-foreground ring-2 ring-foreground ring-offset-2"
                       : "border-border hover:border-foreground/40",
                   )}
-                  style={{
-                    backgroundColor: color.hex ?? undefined,
-                  }}
+                  style={{ backgroundColor: color.hex ?? undefined }}
                 >
                   {!color.hex ? (
                     <span className="flex size-full items-center justify-center text-[10px]">
@@ -178,8 +219,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
           </div>
         ) : null}
 
-        {/* Tamanho */}
-        {sizes.length > 0 ? (
+        {shouldShowSizeSelector ? (
           <div className="space-y-2">
             <p className="text-sm font-medium">Tamanho</p>
             <div className="flex flex-wrap gap-2">
@@ -212,24 +252,27 @@ export function ProductDetail({ product }: ProductDetailProps) {
           </div>
         ) : null}
 
-        {/* Estoque */}
         {selectedVariant ? (
           <p className="text-xs text-muted-foreground">
             {selectedVariant.stock > 5
               ? "Em estoque"
               : selectedVariant.stock > 0
-                ? `Últimas ${selectedVariant.stock} unidades`
+                ? `Ultimas ${selectedVariant.stock} unidades`
                 : "Esgotado"}
+          </p>
+        ) : variants.length === 0 ? (
+          <p className="text-xs text-destructive">
+            Produto sem estoque cadastrado.
           </p>
         ) : null}
 
-        {/* Quantidade */}
         <div className="flex items-center gap-3">
           <p className="text-sm font-medium">Quantidade</p>
           <div className="flex items-center rounded-md border">
             <button
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="flex size-8 items-center justify-center transition-colors hover:bg-muted"
+              disabled={!selectedVariant}
+              className="flex size-8 items-center justify-center transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Diminuir quantidade"
             >
               <Minus className="size-3.5" />
@@ -240,10 +283,11 @@ export function ProductDetail({ product }: ProductDetailProps) {
             <button
               onClick={() =>
                 setQuantity((q) =>
-                  Math.min(selectedVariant?.stock ?? 10, q + 1),
+                  Math.min(selectedVariant?.stock ?? 1, q + 1),
                 )
               }
-              className="flex size-8 items-center justify-center transition-colors hover:bg-muted"
+              disabled={!selectedVariant || quantity >= selectedVariant.stock}
+              className="flex size-8 items-center justify-center transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Aumentar quantidade"
             >
               <Plus className="size-3.5" />
@@ -258,14 +302,13 @@ export function ProductDetail({ product }: ProductDetailProps) {
           disabled={!selectedVariant || selectedVariant.stock === 0}
         >
           <ShoppingCart className="size-4" />
-          Adicionar ao carrinho
+          {selectedVariant ? "Adicionar ao carrinho" : "Produto indisponivel"}
         </Button>
 
-        {/* Descrição */}
         {product.description ? (
           <div className="mt-4 space-y-2">
             <Separator />
-            <h2 className="text-sm font-semibold">Descrição</h2>
+            <h2 className="text-sm font-semibold">Descricao</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {product.description}
             </p>

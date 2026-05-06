@@ -16,6 +16,10 @@ import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import type { Category, ProductWithVariants } from "@/types/database"
 import {
+  DEFAULT_VARIANT_COLOR,
+  DEFAULT_VARIANT_SIZE,
+} from "@/lib/product-options"
+import {
   createProduct,
   updateProduct,
   uploadProductImage,
@@ -235,11 +239,18 @@ export function ProductForm({ categories, product }: ProductFormProps) {
       is_active: isActive,
       is_featured: isFeatured,
       variants: variants
-        .filter((v) => v.size && v.color)
+        .filter(
+          (v) =>
+            v.size.trim() ||
+            v.color.trim() ||
+            v.color_hex.trim() ||
+            v.sku.trim() ||
+            v.stock > 0,
+        )
         .map((v) => ({
           id: v.id,
-          size: v.size,
-          color: v.color,
+          size: v.size.trim(),
+          color: v.color.trim(),
           color_hex: v.color_hex,
           stock: v.stock,
           sku: v.sku,
@@ -492,7 +503,13 @@ export function ProductForm({ categories, product }: ProductFormProps) {
       {/* Variantes */}
       <Card className="p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Variantes</h2>
+          <div>
+            <h2 className="font-semibold">Estoque e variantes</h2>
+            <p className="text-xs text-muted-foreground">
+              Para produto sem tamanho ou cor, deixe esses campos em branco e
+              informe apenas o estoque.
+            </p>
+          </div>
           <Button type="button" variant="outline" size="sm" onClick={addVariant}>
             <Plus className="mr-1 size-4" />
             Adicionar
@@ -516,7 +533,7 @@ export function ProductForm({ categories, product }: ProductFormProps) {
                       onChange={(e) =>
                         updateVariant(v.key, "size", e.target.value)
                       }
-                      placeholder="M"
+                      placeholder={DEFAULT_VARIANT_SIZE}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -526,7 +543,7 @@ export function ProductForm({ categories, product }: ProductFormProps) {
                       onChange={(e) =>
                         updateVariant(v.key, "color", e.target.value)
                       }
-                      placeholder="Azul"
+                      placeholder={DEFAULT_VARIANT_COLOR}
                     />
                   </div>
                   <div className="space-y-1.5">

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet"
 import { useCartStore } from "@/store/cart"
 import { formatPrice } from "@/lib/format"
+import { formatVariantOptionLabel } from "@/lib/product-options"
 
 export function CartSheet() {
   const {
@@ -54,7 +55,13 @@ export function CartSheet() {
           <>
             <div className="flex-1 overflow-y-auto px-4">
               <ul className="space-y-4">
-                {items.map((item) => (
+                {items.map((item) => {
+                  const optionLabel = formatVariantOptionLabel(
+                    item.color,
+                    item.size,
+                  )
+
+                  return (
                   <li key={item.variantId} className="flex gap-3">
                     <div className="relative size-20 shrink-0 overflow-hidden rounded-md border bg-muted">
                       {item.image ? (
@@ -77,9 +84,11 @@ export function CartSheet() {
                         <p className="truncate text-sm font-medium">
                           {item.name}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.color} / {item.size}
-                        </p>
+                        {optionLabel ? (
+                          <p className="text-xs text-muted-foreground">
+                            {optionLabel}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="flex items-center justify-between">
@@ -129,7 +138,8 @@ export function CartSheet() {
                       </div>
                     </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             </div>
 
