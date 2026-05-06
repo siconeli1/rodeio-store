@@ -66,12 +66,10 @@ export function ProductDetail({ product }: ProductDetailProps) {
   )
 
   const [selectedColor, setSelectedColor] = useState(
-    shouldShowColorSelector
-      ? colors[0]?.name ?? ""
-      : firstAvailableVariant?.color ?? "",
+    firstAvailableVariant?.color ?? "",
   )
   const [selectedSize, setSelectedSize] = useState(
-    shouldShowSizeSelector ? "" : firstAvailableVariant?.size ?? "",
+    firstAvailableVariant?.size ?? "",
   )
   const [quantity, setQuantity] = useState(1)
 
@@ -195,8 +193,13 @@ export function ProductDetail({ product }: ProductDetailProps) {
                 <button
                   key={color.name}
                   onClick={() => {
+                    const nextVariant =
+                      variants.find(
+                        (v) => v.color === color.name && v.stock > 0,
+                      ) ?? variants.find((v) => v.color === color.name)
+
                     setSelectedColor(color.name)
-                    setSelectedSize(shouldShowSizeSelector ? "" : sizes[0] ?? "")
+                    setSelectedSize(nextVariant?.size ?? "")
                     setQuantity(1)
                   }}
                   title={color.name}
