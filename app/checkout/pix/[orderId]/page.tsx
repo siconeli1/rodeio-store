@@ -22,7 +22,9 @@ export default async function PixPage({
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id, payment_method, payment_status, pix_qr_code, pix_qr_code_base64, pix_expires_at")
+    .select(
+      "id, payment_method, payment_status, pix_qr_code, pix_qr_code_base64, pix_expires_at, payment_failure_reason",
+    )
     .eq("id", orderId)
     .eq("user_id", user.id)
     .single()
@@ -42,6 +44,8 @@ export default async function PixPage({
       qrCode={order.pix_qr_code}
       qrCodeBase64={order.pix_qr_code_base64}
       expiresAt={order.pix_expires_at}
+      initialPaymentStatus={order.payment_status}
+      failureReason={order.payment_failure_reason}
     />
   )
 }

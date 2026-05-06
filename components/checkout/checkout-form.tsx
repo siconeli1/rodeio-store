@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -12,35 +12,53 @@ import { Button } from "@/components/ui/button"
 import { useCartStore } from "@/store/cart"
 import { addressSchema } from "@/lib/checkout-schema"
 import { AddressForm } from "./address-form"
-import { PaymentForm } from "./payment-form"
+import {
+  PaymentForm,
+  type CardPaymentBrickData,
+} from "./payment-form"
 import { OrderSummary } from "./order-summary"
 
 const SHIPPING_COST = 15
 
-// Schema do formulário do lado client (sem discriminatedUnion para melhor UX)
 const checkoutFormSchema = z.object({
   address: addressSchema,
   payment: z.object({
     method: z.enum(["pix", "credit_card"]),
-    cpf: z.string().length(11, "CPF deve ter 11 dígitos"),
-    // Campos de cartão são validados condicionalmente no submit
-    cardNumber: z.string().optional(),
-    cardholderName: z.string().optional(),
-    expirationMonth: z.string().optional(),
-    expirationYear: z.string().optional(),
-    securityCode: z.string().optional(),
-    installments: z.number().optional(),
+    cpf: z.string().min(11, "CPF deve ter 11 digitos"),
   }),
   total: z.number(),
 })
 
 export type CheckoutFormValues = z.infer<typeof checkoutFormSchema>
 
+type PaymentPayload =
+  | { method: "pix"; cpf: string }
+  | {
+      method: "credit_card"
+      cpf: string
+      token: string
+      paymentMethodId: string
+      issuerId: string | number | null
+      installments: number
+    }
+
+function onlyDigits(value: string | undefined): string {
+  return (value ?? "").replace(/\D/g, "")
+}
+
+function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export function CheckoutForm() {
   const router = useRouter()
   const { items, getSubtotal, clearCart } = useCartStore()
   const [submitting, setSubmitting] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const attemptKeyRef = useRef<string | null>(null)
 
   useEffect(() => setMounted(true), [])
 
@@ -64,103 +82,109 @@ export function CheckoutForm() {
       payment: {
         method: "pix",
         cpf: "",
-        cardNumber: "",
-        cardholderName: "",
-        expirationMonth: "",
-        expirationYear: "",
-        securityCode: "",
-        installments: 1,
       },
       total,
     },
   })
 
-  // Atualizar total quando subtotal mudar
+  const method = form.watch("payment.method")
+
   useEffect(() => {
     form.setValue("total", total)
   }, [total, form])
 
-  async function onSubmit(values: CheckoutFormValues) {
-    if (items.length === 0) {
-      toast.error("Seu carrinho está vazio")
-      return
-    }
+  function getAttemptKey(): string {
+    attemptKeyRef.current ??= newIdempotencyKey()
+    return attemptKeyRef.current
+  }
 
-    // Validação extra para cartão
-    if (values.payment.method === "credit_card") {
-      if (!values.payment.cardNumber || values.payment.cardNumber.length < 13) {
-        toast.error("Número do cartão inválido")
-        return
-      }
-      if (!values.payment.cardholderName || values.payment.cardholderName.length < 3) {
-        toast.error("Nome no cartão é obrigatório")
-        return
-      }
-      if (!values.payment.expirationMonth || !values.payment.expirationYear) {
-        toast.error("Validade do cartão é obrigatória")
-        return
-      }
-      if (!values.payment.securityCode || values.payment.securityCode.length < 3) {
-        toast.error("CVV inválido")
-        return
-      }
+  async function submitCheckout(payment: PaymentPayload) {
+    if (items.length === 0) {
+      toast.error("Seu carrinho esta vazio")
+      throw new Error("Carrinho vazio")
     }
 
     setSubmitting(true)
 
     try {
       const payload = {
-        address: values.address,
-        items: items.map((i) => ({
-          productId: i.productId,
-          variantId: i.variantId,
-          name: i.name,
-          image: i.image,
-          price: i.price,
-          size: i.size,
-          color: i.color,
-          quantity: i.quantity,
+        address: form.getValues("address"),
+        items: items.map((item) => ({
+          variantId: item.variantId,
+          quantity: item.quantity,
         })),
-        payment:
-          values.payment.method === "pix"
-            ? { method: "pix" as const, cpf: values.payment.cpf }
-            : {
-                method: "credit_card" as const,
-                cpf: values.payment.cpf,
-                cardNumber: values.payment.cardNumber!,
-                cardholderName: values.payment.cardholderName!,
-                expirationMonth: values.payment.expirationMonth!,
-                expirationYear: values.payment.expirationYear!,
-                securityCode: values.payment.securityCode!,
-                installments: values.payment.installments ?? 1,
-              },
+        payment,
       }
 
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": getAttemptKey(),
+        },
         body: JSON.stringify(payload),
       })
 
       const data = await res.json()
 
       if (!res.ok) {
+        if (res.status < 500) attemptKeyRef.current = null
         toast.error(data.error || "Erro ao processar pedido")
-        return
+        throw new Error(data.error || "Erro ao processar pedido")
       }
 
       clearCart()
+      attemptKeyRef.current = null
 
       if (data.paymentMethod === "pix") {
         router.push(`/checkout/pix/${data.orderId}`)
       } else {
         router.push(`/checkout/sucesso/${data.orderId}`)
       }
-    } catch {
-      toast.error("Erro de conexão. Tente novamente.")
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        toast.error("Erro de conexao. Tente novamente.")
+      }
+      throw error
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function handlePixSubmit() {
+    const valid = await form.trigger(["address", "payment.cpf"])
+    if (!valid) {
+      toast.error("Revise os dados de entrega e CPF")
+      return
+    }
+
+    await submitCheckout({
+      method: "pix",
+      cpf: onlyDigits(form.getValues("payment.cpf")),
+    }).catch(() => {})
+  }
+
+  async function handleCardSubmit(cardData: CardPaymentBrickData) {
+    const valid = await form.trigger("address")
+    if (!valid) {
+      toast.error("Revise os dados de entrega antes de pagar")
+      throw new Error("Endereco invalido")
+    }
+
+    const cpf = onlyDigits(cardData.payer?.identification?.number)
+    if (cpf.length !== 11) {
+      toast.error("CPF do titular do cartao invalido")
+      throw new Error("CPF invalido")
+    }
+
+    await submitCheckout({
+      method: "credit_card",
+      cpf,
+      token: cardData.token,
+      paymentMethodId: cardData.payment_method_id,
+      issuerId: cardData.issuer_id ?? null,
+      installments: cardData.installments,
+    })
   }
 
   if (!mounted) return null
@@ -169,7 +193,7 @@ export function CheckoutForm() {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
         <ShoppingBag className="size-16 text-muted-foreground/40" />
-        <h1 className="text-xl font-semibold">Seu carrinho está vazio</h1>
+        <h1 className="text-xl font-semibold">Seu carrinho esta vazio</h1>
         <p className="text-sm text-muted-foreground">
           Adicione produtos antes de ir para o checkout.
         </p>
@@ -181,24 +205,29 @@ export function CheckoutForm() {
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)}>
-      <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
-        <div className="space-y-8">
-          <AddressForm form={form} />
-          <PaymentForm form={form} />
-        </div>
+    <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
+      <div className="space-y-8">
+        <AddressForm form={form} />
+        <PaymentForm
+          form={form}
+          total={total}
+          onCardSubmit={handleCardSubmit}
+        />
+      </div>
 
-        <div className="space-y-4">
-          <OrderSummary
-            items={items}
-            subtotal={subtotal}
-            shippingCost={SHIPPING_COST}
-          />
+      <div className="space-y-4">
+        <OrderSummary
+          items={items}
+          subtotal={subtotal}
+          shippingCost={SHIPPING_COST}
+        />
+        {method === "pix" ? (
           <Button
-            type="submit"
+            type="button"
             size="lg"
             className="w-full"
             disabled={submitting}
+            onClick={handlePixSubmit}
           >
             {submitting ? (
               <>
@@ -206,11 +235,15 @@ export function CheckoutForm() {
                 Processando...
               </>
             ) : (
-              "Finalizar pedido"
+              "Gerar QR Code PIX"
             )}
           </Button>
-        </div>
+        ) : (
+          <p className="rounded-lg border bg-muted/40 p-3 text-center text-sm text-muted-foreground">
+            Finalize pelo formulario seguro de cartao ao lado.
+          </p>
+        )}
       </div>
-    </form>
+    </div>
   )
 }

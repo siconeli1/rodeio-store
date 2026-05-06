@@ -114,6 +114,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 # Mercado Pago
 MERCADOPAGO_ACCESS_TOKEN=
 NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY=
+MERCADOPAGO_WEBHOOK_SECRET=
 
 # App
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -187,7 +188,7 @@ O projeto inclui um cron job configurado via Vercel para manter o banco Supabase
 3. Configure todas as variáveis de ambiente no painel da Vercel
 4. O deploy acontece automaticamente a cada push na branch `main`
 
-O webhook do Mercado Pago deve apontar para `https://<seu-dominio>.vercel.app/api/webhooks/mp`.
+O webhook do Mercado Pago deve apontar para `https://<seu-dominio>.vercel.app/api/webhooks/mercadopago` e usar a chave secreta configurada em `MERCADOPAGO_WEBHOOK_SECRET`.
 
 ---
 

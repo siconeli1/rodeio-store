@@ -89,6 +89,11 @@ export default async function AdminPedidoDetalhePage({
                 {order.payment_method === "pix" ? "PIX" : "Cartão de crédito"}
               </span>
             </div>
+            {order.payment_failure_reason ? (
+              <p className="mt-2 text-xs text-destructive">
+                {order.payment_failure_reason}
+              </p>
+            ) : null}
           </div>
         </div>
       </Card>

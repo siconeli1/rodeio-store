@@ -96,9 +96,18 @@ export interface Order {
   payment_method: "pix" | "credit_card"
   payment_status: "pending" | "paid" | "failed"
   payment_id: string | null
+  checkout_attempt_id: string | null
+  external_reference: string | null
+  mp_status: string | null
+  mp_status_detail: string | null
+  payment_failure_reason: string | null
   pix_qr_code: string | null
   pix_qr_code_base64: string | null
   pix_expires_at: string | null
+  paid_at: string | null
+  failed_at: string | null
+  stock_confirmed_at: string | null
+  stock_released_at: string | null
   subtotal: number
   shipping_cost: number
   total: number

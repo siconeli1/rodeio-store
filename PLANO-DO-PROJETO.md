@@ -192,7 +192,7 @@ unit_price      numeric
 ### API Routes (Next.js)
 ```
 POST /api/checkout          → Criar pedido + pagamento no MP
-POST /api/webhooks/mp       → Receber notificações do Mercado Pago
+POST /api/webhooks/mercadopago → Receber notificações do Mercado Pago
 GET  /api/orders/[id]       → Consultar status do pedido
 ```
 
@@ -339,6 +339,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 # Mercado Pago
 MERCADOPAGO_ACCESS_TOKEN=
 NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY=
+MERCADOPAGO_WEBHOOK_SECRET=
 
 # App
 NEXT_PUBLIC_APP_URL=
@@ -347,10 +348,3 @@ NEXT_PUBLIC_APP_URL=
 RESEND_API_KEY=
 ```
 
----
-
-## 🚀 Próximo Passo
-
-Começar pela **Fase 1**: inicializar o projeto Next.js, configurar as dependências e criar o banco de dados no Supabase.
-
-Quando quiser começar, me diz e partimos para o código!

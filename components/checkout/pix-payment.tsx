@@ -1,8 +1,9 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check, Clock, Copy, Loader2 } from "lucide-react"
+import { Check, Clock, Copy, Loader2, XCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -12,6 +13,8 @@ interface PixPaymentProps {
   qrCode: string | null
   qrCodeBase64: string | null
   expiresAt: string | null
+  initialPaymentStatus: "pending" | "paid" | "failed"
+  failureReason: string | null
 }
 
 export function PixPayment({
@@ -19,25 +22,30 @@ export function PixPayment({
   qrCode,
   qrCodeBase64,
   expiresAt,
+  initialPaymentStatus,
+  failureReason,
 }: PixPaymentProps) {
   const router = useRouter()
   const [copied, setCopied] = useState(false)
   const [timeLeft, setTimeLeft] = useState("")
-  const [expired, setExpired] = useState(false)
-  const [paid, setPaid] = useState(false)
+  const [expired, setExpired] = useState(initialPaymentStatus === "failed")
+  const [paid, setPaid] = useState(initialPaymentStatus === "paid")
+  const [failedReason, setFailedReason] = useState<string | null>(
+    failureReason,
+  )
+  const [canceling, setCanceling] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Timer de expiração
   useEffect(() => {
-    if (!expiresAt) return
+    if (!expiresAt || paid) return
 
     const expirationDate = new Date(expiresAt)
 
     function updateTimer() {
-      const now = Date.now()
-      const diff = expirationDate.getTime() - now
+      const diff = expirationDate.getTime() - Date.now()
       if (diff <= 0) {
         setExpired(true)
+        setFailedReason("Pagamento PIX expirado")
         setTimeLeft("00:00")
         return
       }
@@ -51,9 +59,8 @@ export function PixPayment({
     updateTimer()
     const interval = setInterval(updateTimer, 1000)
     return () => clearInterval(interval)
-  }, [expiresAt])
+  }, [expiresAt, paid])
 
-  // Polling de status a cada 5 segundos
   const checkStatus = useCallback(async () => {
     try {
       const res = await fetch(`/api/orders/${orderId}/status`)
@@ -64,8 +71,12 @@ export function PixPayment({
         toast.success("Pagamento confirmado!")
         router.push(`/checkout/sucesso/${orderId}`)
       }
+      if (data.paymentStatus === "failed") {
+        setExpired(true)
+        setFailedReason(data.failureReason ?? "Pagamento nao aprovado")
+      }
     } catch {
-      // Silenciar — vai tentar de novo no próximo ciclo
+      // O polling tenta novamente no proximo ciclo.
     }
   }, [orderId, router])
 
@@ -82,10 +93,31 @@ export function PixPayment({
     try {
       await navigator.clipboard.writeText(qrCode)
       setCopied(true)
-      toast.success("Código PIX copiado!")
+      toast.success("Codigo PIX copiado!")
       setTimeout(() => setCopied(false), 3000)
     } catch {
-      toast.error("Não foi possível copiar")
+      toast.error("Nao foi possivel copiar")
+    }
+  }
+
+  async function handleCancel() {
+    setCanceling(true)
+    try {
+      const res = await fetch(`/api/orders/${orderId}/cancel`, {
+        method: "POST",
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? "Nao foi possivel cancelar")
+        return
+      }
+      setExpired(true)
+      setFailedReason("Pedido cancelado pelo cliente")
+      toast.success("Pedido cancelado")
+    } catch {
+      toast.error("Erro de conexao ao cancelar")
+    } finally {
+      setCanceling(false)
     }
   }
 
@@ -107,29 +139,31 @@ export function PixPayment({
       <div className="text-center">
         <h1 className="text-2xl font-bold">Pagamento via PIX</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Escaneie o QR Code ou copie o código para pagar
+          Escaneie o QR Code ou copie o codigo para pagar
         </p>
       </div>
 
-      {/* Timer */}
       <div className="flex items-center justify-center gap-2 text-sm">
-        <Clock className="size-4 text-muted-foreground" />
         {expired ? (
-          <span className="font-medium text-destructive">
-            PIX expirado — faça um novo pedido
-          </span>
+          <>
+            <XCircle className="size-4 text-destructive" />
+            <span className="font-medium text-destructive">
+              {failedReason ?? "Pagamento nao aprovado"}
+            </span>
+          </>
         ) : (
-          <span>
-            Expira em{" "}
-            <span className="font-mono font-bold">{timeLeft}</span>
-          </span>
+          <>
+            <Clock className="size-4 text-muted-foreground" />
+            <span>
+              Expira em <span className="font-mono font-bold">{timeLeft}</span>
+            </span>
+          </>
         )}
       </div>
 
-      {/* QR Code */}
       <Card className="flex flex-col items-center gap-4 p-6">
         {qrCodeBase64 ? (
-          // QR Code vem como data URL base64 do Mercado Pago — next/image não otimiza data URLs.
+          // QR Code vem como data URL base64 do Mercado Pago.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={`data:image/png;base64,${qrCodeBase64}`}
@@ -138,7 +172,7 @@ export function PixPayment({
           />
         ) : (
           <div className="flex size-56 items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
-            QR Code indisponível
+            QR Code indisponivel
           </div>
         )}
 
@@ -163,7 +197,7 @@ export function PixPayment({
               ) : (
                 <>
                   <Copy className="size-4" />
-                  Copiar código PIX
+                  Copiar codigo PIX
                 </>
               )}
             </Button>
@@ -171,10 +205,31 @@ export function PixPayment({
         ) : null}
       </Card>
 
-      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-        <Loader2 className="size-3 animate-spin" />
-        Aguardando confirmação do pagamento...
-      </div>
+      {expired ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button asChild>
+            <Link href="/produtos">Fazer novo pedido</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/conta/pedidos">Meus pedidos</Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            Aguardando confirmacao do pagamento...
+          </div>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={handleCancel}
+            disabled={canceling}
+          >
+            {canceling ? "Cancelando..." : "Cancelar pedido"}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

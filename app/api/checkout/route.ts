@@ -1,61 +1,213 @@
-﻿import { NextRequest, NextResponse } from "next/server"
-import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
-import { payment } from "@/lib/mercadopago/client"
+import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+import { createSupabaseAdminClient } from "@/lib/supabase/admin"
+import { getMercadoPagoPayment } from "@/lib/mercadopago/client"
 import { checkoutSchema } from "@/lib/checkout-schema"
+import { getAppUrl } from "@/lib/url"
+import {
+  mapMercadoPagoStatus,
+  shouldKeepCurrentOrderStatus,
+} from "@/lib/payments/status"
 
 const SHIPPING_COST = 15
+const PIX_EXPIRATION_MINUTES = 30
 
-type NormalizedCheckoutItem = {
-  variantId: string
-  quantity: number
-  productId: string
-  productName: string
-  productImage: string | null
-  size: string
-  color: string
-  unitPrice: number
+interface CheckoutOrderResult {
+  orderId: string
+  subtotal: number
+  shippingCost: number
+  total: number
+  paymentId: string | null
+  paymentMethod: "pix" | "credit_card"
+  paymentStatus: "pending" | "paid" | "failed"
+  orderStatus: string
+  pixQrCode: string | null
+  pixQrCodeBase64: string | null
+  pixExpiresAt: string | null
+  wasExisting: boolean
 }
 
-function createSupabaseAdmin() {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { cookies: { getAll: () => [], setAll: () => {} } },
-  )
+interface MercadoPagoPaymentLike {
+  id?: string | number | null
+  status?: string | null
+  status_detail?: string | null
+  payment_method_id?: string | null
+  payment_type_id?: string | null
+  external_reference?: string | null
+  point_of_interaction?: {
+    transaction_data?: {
+      qr_code?: string | null
+      qr_code_base64?: string | null
+      ticket_url?: string | null
+    }
+  } | null
 }
 
 async function getAuthUser() {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll() {},
-      },
-    },
-  )
-
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
   return user
+}
+
+function getIdempotencyKey(request: NextRequest): string | null {
+  const key = request.headers.get("x-idempotency-key")?.trim()
+  if (!key || key.length < 12 || key.length > 120) return null
+  return key
+}
+
+function getPixExpiration(): string {
+  return new Date(Date.now() + PIX_EXPIRATION_MINUTES * 60 * 1000).toISOString()
+}
+
+function rpcItems(
+  items: Array<{ variantId: string; quantity: number }>,
+): Array<{ variant_id: string; quantity: number }> {
+  return items.map((item) => ({
+    variant_id: item.variantId,
+    quantity: item.quantity,
+  }))
+}
+
+function checkoutError(message: string, status = 400) {
+  return NextResponse.json({ error: message }, { status })
+}
+
+function mapCheckoutRpcError(message: string): string {
+  if (message.startsWith("INSUFFICIENT_STOCK:")) {
+    const productName = message.split(":", 2)[1] || "um item do carrinho"
+    return `Estoque insuficiente para "${productName}"`
+  }
+
+  const known: Record<string, string> = {
+    EMPTY_CART: "O carrinho esta vazio",
+    INVALID_IDEMPOTENCY_KEY: "Tentativa de checkout invalida",
+    INVALID_PAYMENT_METHOD: "Metodo de pagamento invalido",
+    INVALID_QUANTITY: "Quantidade invalida no carrinho",
+    ITEM_UNAVAILABLE: "Um ou mais itens estao indisponiveis",
+  }
+
+  return known[message] ?? "Nao foi possivel criar o pedido"
+}
+
+async function markPaymentCreationFailed(orderId: string, reason: string) {
+  const supabase = createSupabaseAdminClient()
+  await supabase.rpc("release_order_stock", {
+    p_order_id: orderId,
+    p_reason: "payment_create_failed",
+  })
+  await supabase
+    .from("orders")
+    .update({
+      status: "cancelled",
+      payment_status: "failed",
+      payment_failure_reason: reason,
+      failed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+}
+
+async function recordPaymentCreateEvent(
+  paymentInfo: MercadoPagoPaymentLike,
+  orderId: string,
+) {
+  if (!paymentInfo.id) return
+
+  const supabase = createSupabaseAdminClient()
+  await supabase.from("mercadopago_payment_events").upsert(
+    {
+      event_key: `payment.create:${paymentInfo.id}`,
+      event_id: `payment.create:${paymentInfo.id}`,
+      payment_id: String(paymentInfo.id),
+      action: "payment.create",
+      event_type: "payment",
+      payload: {
+        order_id: orderId,
+        status: paymentInfo.status ?? null,
+        status_detail: paymentInfo.status_detail ?? null,
+      },
+      processed: true,
+      processed_at: new Date().toISOString(),
+    },
+    { onConflict: "event_key" },
+  )
+}
+
+async function updateOrderFromPayment(
+  order: CheckoutOrderResult,
+  paymentInfo: MercadoPagoPaymentLike,
+) {
+  if (!paymentInfo.id) {
+    throw new Error("Mercado Pago nao retornou payment_id")
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const mapping = mapMercadoPagoStatus(
+    paymentInfo.status,
+    paymentInfo.status_detail,
+  )
+  const nextOrderStatus = shouldKeepCurrentOrderStatus(order.orderStatus)
+    ? order.orderStatus
+    : mapping.orderStatus
+  const now = new Date().toISOString()
+  const pixData = paymentInfo.point_of_interaction?.transaction_data
+
+  await supabase
+    .from("orders")
+    .update({
+      payment_id: String(paymentInfo.id),
+      external_reference: order.orderId,
+      payment_status: mapping.paymentStatus,
+      status: nextOrderStatus,
+      mp_status: paymentInfo.status ?? null,
+      mp_status_detail: paymentInfo.status_detail ?? null,
+      payment_failure_reason: mapping.failureReason,
+      pix_qr_code: pixData?.qr_code ?? order.pixQrCode,
+      pix_qr_code_base64: pixData?.qr_code_base64 ?? order.pixQrCodeBase64,
+      pix_expires_at: order.pixExpiresAt,
+      paid_at: mapping.paymentStatus === "paid" ? now : null,
+      failed_at: mapping.paymentStatus === "failed" ? now : null,
+      updated_at: now,
+    })
+    .eq("id", order.orderId)
+
+  if (mapping.shouldConfirmStock) {
+    await supabase.rpc("confirm_order_stock", { p_order_id: order.orderId })
+  }
+
+  if (mapping.shouldReleaseStock) {
+    await supabase.rpc("release_order_stock", {
+      p_order_id: order.orderId,
+      p_reason: paymentInfo.status ?? "payment_failed",
+    })
+  }
+
+  await recordPaymentCreateEvent(paymentInfo, order.orderId)
+
+  return {
+    paymentId: String(paymentInfo.id),
+    paymentStatus: mapping.paymentStatus,
+    orderStatus: nextOrderStatus,
+    pixQrCode: pixData?.qr_code ?? order.pixQrCode,
+    pixQrCodeBase64: pixData?.qr_code_base64 ?? order.pixQrCodeBase64,
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser()
-    if (!user) {
-      return NextResponse.json({ error: "Nao autenticado" }, { status: 401 })
+    if (!user?.email) {
+      return checkoutError("Nao autenticado", 401)
     }
 
-    const body = await request.json()
-    const parsed = checkoutSchema.safeParse(body)
+    const idempotencyKey = getIdempotencyKey(request)
+    if (!idempotencyKey) {
+      return checkoutError("Tentativa de checkout invalida", 400)
+    }
+
+    const parsed = checkoutSchema.safeParse(await request.json())
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Dados invalidos", details: parsed.error.flatten() },
@@ -63,261 +215,125 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { address, items, payment: paymentData } = parsed.data
-    const supabase = createSupabaseAdmin()
+    const { address, items, payment } = parsed.data
+    const pixExpiresAt =
+      payment.method === "pix" ? getPixExpiration() : null
+    const supabase = createSupabaseAdminClient()
 
-    // Normaliza itens por variante para evitar inconsistencias por payload duplicado.
-    const quantityByVariant = new Map<string, number>()
-    for (const item of items) {
-      quantityByVariant.set(
-        item.variantId,
-        (quantityByVariant.get(item.variantId) ?? 0) + item.quantity,
-      )
+    const { data, error } = await supabase.rpc("create_checkout_order", {
+      p_user_id: user.id,
+      p_checkout_attempt_id: idempotencyKey,
+      p_payment_method: payment.method,
+      p_address_snapshot: address,
+      p_items: rpcItems(items),
+      p_shipping_cost: SHIPPING_COST,
+      p_pix_expires_at: pixExpiresAt,
+    })
+
+    if (error || !data) {
+      return checkoutError(mapCheckoutRpcError(error?.message ?? ""), 400)
     }
 
-    const variantIds = Array.from(quantityByVariant.keys())
-    const { data: variants, error: variantsError } = await supabase
-      .from("product_variants")
-      .select("id, product_id, stock, size, color")
-      .in("id", variantIds)
+    const order = data as unknown as CheckoutOrderResult
 
-    if (variantsError || !variants || variants.length !== variantIds.length) {
-      return NextResponse.json(
-        { error: "Um ou mais itens nao foram encontrados" },
-        { status: 400 },
-      )
-    }
-
-    const productIds = [...new Set(variants.map((v) => v.product_id))]
-    const { data: products } = await supabase
-      .from("products")
-      .select("id, price, name, images")
-      .in("id", productIds)
-      .eq("is_active", true)
-
-    if (!products || products.length !== productIds.length) {
-      return NextResponse.json(
-        { error: "Um ou mais produtos estao indisponiveis" },
-        { status: 400 },
-      )
-    }
-
-    const productMap = new Map(products.map((p) => [p.id, p]))
-    const variantMap = new Map(variants.map((v) => [v.id, v]))
-
-    let subtotal = 0
-    const normalizedItems: NormalizedCheckoutItem[] = []
-
-    for (const [variantId, quantity] of quantityByVariant) {
-      const variant = variantMap.get(variantId)
-      const product = variant ? productMap.get(variant.product_id) : null
-
-      if (!variant || !product) {
-        return NextResponse.json(
-          { error: "Um ou mais itens estao indisponiveis no momento" },
-          { status: 400 },
-        )
-      }
-
-      if (variant.stock < quantity) {
-        return NextResponse.json(
-          { error: `Estoque insuficiente para \"${product.name}\"` },
-          { status: 400 },
-        )
-      }
-
-      const unitPrice = Number(product.price)
-      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-        return NextResponse.json(
-          { error: `Preco invalido para \"${product.name}\"` },
-          { status: 400 },
-        )
-      }
-
-      const productImage =
-        Array.isArray(product.images) && typeof product.images[0] === "string"
-          ? product.images[0]
-          : null
-
-      normalizedItems.push({
-        variantId,
-        quantity,
-        productId: variant.product_id,
-        productName: product.name,
-        productImage,
-        size: variant.size,
-        color: variant.color,
-        unitPrice,
+    if (order.paymentId) {
+      return NextResponse.json({
+        orderId: order.orderId,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        pixQrCode: order.pixQrCode,
+        pixQrCodeBase64: order.pixQrCodeBase64,
+        pixExpiresAt: order.pixExpiresAt,
       })
-
-      subtotal += unitPrice * quantity
     }
 
-    const orderItems = normalizedItems.map((item) => ({
-      product_id: item.productId,
-      variant_id: item.variantId,
-      product_name: item.productName,
-      product_image: item.productImage,
-      size: item.size,
-      color: item.color,
-      quantity: item.quantity,
-      unit_price: item.unitPrice,
-    }))
+    if (order.wasExisting && order.paymentStatus === "failed") {
+      return checkoutError(
+        "Esta tentativa de checkout ja falhou. Inicie uma nova tentativa.",
+        409,
+      )
+    }
 
-    const total = subtotal + SHIPPING_COST
+    const paymentClient = getMercadoPagoPayment()
+    const appUrl = getAppUrl()
+    const mpIdempotencyKey = `order-${order.orderId}`
 
-    // Processar pagamento via Mercado Pago
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-    const idempotencyKey = `${user.id}-${Date.now()}`
+    try {
+      if (payment.method === "pix") {
+        const mpPayment = await paymentClient.create({
+          body: {
+            transaction_amount: order.total,
+            payment_method_id: "pix",
+            payer: {
+              email: user.email,
+              identification: { type: "CPF", number: payment.cpf },
+            },
+            description: "RodeioStore - Pedido",
+            external_reference: order.orderId,
+            date_of_expiration: order.pixExpiresAt ?? pixExpiresAt ?? undefined,
+            notification_url: `${appUrl}/api/webhooks/mercadopago`,
+          },
+          requestOptions: { idempotencyKey: mpIdempotencyKey },
+        })
 
-    if (paymentData.method === "pix") {
-      const mpPayment = await payment.create({
+        const updated = await updateOrderFromPayment(
+          order,
+          mpPayment as MercadoPagoPaymentLike,
+        )
+
+        return NextResponse.json({
+          orderId: order.orderId,
+          paymentMethod: "pix",
+          paymentStatus: updated.paymentStatus,
+          orderStatus: updated.orderStatus,
+          pixQrCode: updated.pixQrCode,
+          pixQrCodeBase64: updated.pixQrCodeBase64,
+          pixExpiresAt: order.pixExpiresAt,
+        })
+      }
+
+      const issuerId = payment.issuerId ? Number(payment.issuerId) : undefined
+      const mpPayment = await paymentClient.create({
         body: {
-          transaction_amount: total,
-          payment_method_id: "pix",
+          transaction_amount: order.total,
+          token: payment.token,
+          payment_method_id: payment.paymentMethodId,
+          issuer_id:
+            issuerId && Number.isFinite(issuerId) ? issuerId : undefined,
+          installments: payment.installments,
           payer: {
-            email: user.email!,
-            identification: { type: "CPF", number: paymentData.cpf },
+            email: user.email,
+            identification: { type: "CPF", number: payment.cpf },
           },
           description: "RodeioStore - Pedido",
+          external_reference: order.orderId,
           notification_url: `${appUrl}/api/webhooks/mercadopago`,
         },
-        requestOptions: { idempotencyKey },
+        requestOptions: { idempotencyKey: mpIdempotencyKey },
       })
 
-      const pixData = mpPayment.point_of_interaction?.transaction_data
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
-
-      // Criar pedido no banco
-      const { data: order, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          user_id: user.id,
-          status: "pending",
-          payment_method: "pix",
-          payment_status: "pending",
-          payment_id: String(mpPayment.id),
-          pix_qr_code: pixData?.qr_code ?? null,
-          pix_qr_code_base64: pixData?.qr_code_base64 ?? null,
-          pix_expires_at: expiresAt,
-          subtotal,
-          shipping_cost: SHIPPING_COST,
-          total,
-          address_snapshot: address,
-        })
-        .select("id")
-        .single()
-
-      if (orderError || !order) {
-        return NextResponse.json(
-          { error: "Erro ao criar pedido" },
-          { status: 500 },
-        )
-      }
-
-      // Inserir itens do pedido
-      await supabase
-        .from("order_items")
-        .insert(orderItems.map((item) => ({ ...item, order_id: order.id })))
-
-      // Decrementar estoque
-      for (const item of normalizedItems) {
-        await supabase
-          .rpc("decrement_stock", {
-            p_variant_id: item.variantId,
-            p_quantity: item.quantity,
-          })
-          .then(({ error }) => {
-            if (error) {
-              const variant = variantMap.get(item.variantId)
-              if (!variant) return
-
-              // Fallback: update direto
-              return supabase
-                .from("product_variants")
-                .update({ stock: variant.stock - item.quantity })
-                .eq("id", item.variantId)
-            }
-          })
-      }
+      const updated = await updateOrderFromPayment(
+        order,
+        mpPayment as MercadoPagoPaymentLike,
+      )
 
       return NextResponse.json({
-        orderId: order.id,
-        paymentMethod: "pix",
-        pixQrCode: pixData?.qr_code ?? null,
-        pixQrCodeBase64: pixData?.qr_code_base64 ?? null,
-        pixExpiresAt: expiresAt,
+        orderId: order.orderId,
+        paymentMethod: "credit_card",
+        paymentStatus: updated.paymentStatus,
+        orderStatus: updated.orderStatus,
       })
-    }
-
-    // Cartao de credito
-    const mpPayment = await payment.create({
-      body: {
-        transaction_amount: total,
-        payment_method_id: "master",
-        payer: {
-          email: user.email!,
-          identification: { type: "CPF", number: paymentData.cpf },
-        },
-        token: paymentData.cardNumber, // Em producao, usar card token do SDK frontend.
-        description: "RodeioStore - Pedido",
-        installments: paymentData.installments,
-        notification_url: `${appUrl}/api/webhooks/mercadopago`,
-      },
-      requestOptions: { idempotencyKey },
-    })
-
-    const paymentStatus = mpPayment.status === "approved" ? "paid" : "pending"
-    const orderStatus = paymentStatus === "paid" ? "processing" : "pending"
-
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert({
-        user_id: user.id,
-        status: orderStatus,
-        payment_method: "credit_card",
-        payment_status: paymentStatus,
-        payment_id: String(mpPayment.id),
-        subtotal,
-        shipping_cost: SHIPPING_COST,
-        total,
-        address_snapshot: address,
-      })
-      .select("id")
-      .single()
-
-    if (orderError || !order) {
-      return NextResponse.json(
-        { error: "Erro ao criar pedido" },
-        { status: 500 },
+    } catch {
+      console.error("[checkout] Falha ao criar pagamento no Mercado Pago")
+      await markPaymentCreationFailed(
+        order.orderId,
+        "Falha ao criar pagamento",
       )
+      return checkoutError("Erro ao criar pagamento. Tente novamente.", 502)
     }
-
-    await supabase
-      .from("order_items")
-      .insert(orderItems.map((item) => ({ ...item, order_id: order.id })))
-
-    // Decrementar estoque
-    for (const item of normalizedItems) {
-      const variant = variantMap.get(item.variantId)
-      if (!variant) continue
-
-      await supabase
-        .from("product_variants")
-        .update({ stock: variant.stock - item.quantity })
-        .eq("id", item.variantId)
-    }
-
-    return NextResponse.json({
-      orderId: order.id,
-      paymentMethod: "credit_card",
-      paymentStatus,
-    })
-  } catch (error) {
-    console.error("[checkout] Erro:", error)
-    return NextResponse.json(
-      { error: "Erro interno ao processar pagamento" },
-      { status: 500 },
-    )
+  } catch {
+    console.error("[checkout] Erro inesperado")
+    return checkoutError("Erro interno ao processar pagamento", 500)
   }
 }

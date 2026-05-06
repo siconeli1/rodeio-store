@@ -1,7 +1,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { redirect } from "next/navigation"
-import { CheckCircle2, Package } from "lucide-react"
+import { CheckCircle2, Clock, Package, XCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -18,6 +18,35 @@ const PAYMENT_STATUS_MAP: Record<string, { label: string; variant: "default" | "
   pending: { label: "Pendente", variant: "secondary" },
   paid: { label: "Pago", variant: "default" },
   failed: { label: "Falhou", variant: "destructive" },
+}
+
+const PAGE_STATE: Record<
+  string,
+  {
+    title: string
+    description: string
+    icon: typeof CheckCircle2
+    iconClassName: string
+  }
+> = {
+  pending: {
+    title: "Pedido recebido",
+    description: "Seu pedido foi criado e esta aguardando confirmacao do pagamento.",
+    icon: Clock,
+    iconClassName: "bg-yellow-100 text-yellow-700",
+  },
+  paid: {
+    title: "Pagamento confirmado!",
+    description: "Obrigado pela compra. Agora vamos preparar o seu pedido.",
+    icon: CheckCircle2,
+    iconClassName: "bg-green-100 text-green-600",
+  },
+  failed: {
+    title: "Pagamento nao aprovado",
+    description: "O pedido nao foi confirmado porque o pagamento falhou ou expirou.",
+    icon: XCircle,
+    iconClassName: "bg-red-100 text-red-600",
+  },
 }
 
 const ORDER_STATUS_MAP: Record<string, string> = {
@@ -53,6 +82,8 @@ export default async function SuccessPage({
 
   const typedOrder = order as unknown as OrderWithItems
   const paymentInfo = PAYMENT_STATUS_MAP[typedOrder.payment_status] ?? PAYMENT_STATUS_MAP.pending
+  const pageState = PAGE_STATE[typedOrder.payment_status] ?? PAGE_STATE.pending
+  const StatusIcon = pageState.icon
   const orderDate = new Date(typedOrder.created_at).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "long",
@@ -65,13 +96,18 @@ export default async function SuccessPage({
     <div className="mx-auto max-w-2xl space-y-8 py-4">
       {/* Cabeçalho */}
       <div className="flex flex-col items-center gap-3 text-center">
-        <div className="flex size-16 items-center justify-center rounded-full bg-green-100 text-green-600">
-          <CheckCircle2 className="size-8" />
+        <div className={`flex size-16 items-center justify-center rounded-full ${pageState.iconClassName}`}>
+          <StatusIcon className="size-8" />
         </div>
-        <h1 className="text-2xl font-bold">Pedido realizado!</h1>
+        <h1 className="text-2xl font-bold">{pageState.title}</h1>
         <p className="text-sm text-muted-foreground">
-          Obrigado pela sua compra. Acompanhe o status do seu pedido abaixo.
+          {pageState.description}
         </p>
+        {typedOrder.payment_failure_reason ? (
+          <p className="text-sm font-medium text-destructive">
+            {typedOrder.payment_failure_reason}
+          </p>
+        ) : null}
       </div>
 
       {/* Info do pedido */}
@@ -163,9 +199,20 @@ export default async function SuccessPage({
 
       {/* Ações */}
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-        <Button asChild>
-          <Link href="/produtos">Continuar comprando</Link>
-        </Button>
+        {typedOrder.payment_status === "pending" &&
+        typedOrder.payment_method === "pix" ? (
+          <Button asChild>
+            <Link href={`/checkout/pix/${typedOrder.id}`}>Ver PIX</Link>
+          </Button>
+        ) : (
+          <Button asChild>
+            <Link href="/produtos">
+              {typedOrder.payment_status === "failed"
+                ? "Fazer novo pedido"
+                : "Continuar comprando"}
+            </Link>
+          </Button>
+        )}
         <Button asChild variant="outline">
           <Link href="/conta">Meus pedidos</Link>
         </Button>

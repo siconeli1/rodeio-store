@@ -6,12 +6,22 @@ import { Button } from "@/components/ui/button"
 import { useCartStore } from "@/store/cart"
 import { CartSheet } from "./cart-sheet"
 
-// Zustand persist hidrata de forma assíncrona no client; usamos useSyncExternalStore
-// para saber se já podemos exibir dados vindos do localStorage sem quebrar a hidratação SSR.
 function useHasHydrated() {
   return useSyncExternalStore(
-    useCartStore.persist.onFinishHydration,
-    () => useCartStore.persist.hasHydrated(),
+    (onStoreChange) => {
+      const persistApi = useCartStore.persist
+
+      if (!persistApi) {
+        return () => {}
+      }
+
+      if (persistApi.hasHydrated()) {
+        queueMicrotask(onStoreChange)
+      }
+
+      return persistApi.onFinishHydration(onStoreChange)
+    },
+    () => useCartStore.persist?.hasHydrated() ?? false,
     () => false,
   )
 }
