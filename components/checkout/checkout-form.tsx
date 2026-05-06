@@ -11,6 +11,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { useCartStore } from "@/store/cart"
 import { addressSchema } from "@/lib/checkout-schema"
+import { getShippingCost } from "@/lib/shipping"
 import { AddressForm } from "./address-form"
 import {
   PaymentForm,
@@ -18,7 +19,7 @@ import {
 } from "./payment-form"
 import { OrderSummary } from "./order-summary"
 
-const SHIPPING_COST = 15
+const SHIPPING_COST = getShippingCost()
 
 const checkoutFormSchema = z.object({
   address: addressSchema,

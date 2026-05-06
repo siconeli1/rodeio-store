@@ -8,8 +8,8 @@ import {
   mapMercadoPagoStatus,
   shouldKeepCurrentOrderStatus,
 } from "@/lib/payments/status"
+import { getShippingCost } from "@/lib/shipping"
 
-const SHIPPING_COST = 15
 const PIX_EXPIRATION_MINUTES = 30
 
 interface CheckoutOrderResult {
@@ -216,6 +216,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { address, items, payment } = parsed.data
+    const shippingCost = getShippingCost()
     const pixExpiresAt =
       payment.method === "pix" ? getPixExpiration() : null
     const supabase = createSupabaseAdminClient()
@@ -226,7 +227,7 @@ export async function POST(request: NextRequest) {
       p_payment_method: payment.method,
       p_address_snapshot: address,
       p_items: rpcItems(items),
-      p_shipping_cost: SHIPPING_COST,
+      p_shipping_cost: shippingCost,
       p_pix_expires_at: pixExpiresAt,
     })
 

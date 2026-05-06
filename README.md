@@ -118,6 +118,7 @@ MERCADOPAGO_WEBHOOK_SECRET=
 
 # App
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_SHIPPING_COST=15
 
 # Resend (emails transacionais — opcional)
 RESEND_API_KEY=
